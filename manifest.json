@@ -1,20 +1,27 @@
 {
     "name": "Ghost",
     "id": "ghostblog",
+    "packaging_format": 1,
     "description": {
         "en": "Just a blogging platform",
         "fr": "Plateforme de blogging"
     },
-    "developer": {
+    "url": "https://ghost.org/",
+    "licence": "free",
+    "maintainer": {
         "name": "Julien Malik",
-        "email": "julien.malik@paraiso.me",
-        "url": "https://ghost.org/"
+        "email": "julien.malik@paraiso.me"
     },
     "multi_instance": "false",
+    "requirements": {
+        "yunohost": ">= 2.4.0"
+    },
+    "multi_instance": false,
     "arguments": {
         "install" : [
             {
                 "name": "domain",
+                "type": "domain",
                 "ask": {
                     "en": "Choose a domain for Ghost",
                     "fr": "Choisissez un domaine pour Ghost"
@@ -23,6 +30,7 @@
             },
             {
                 "name": "path",
+                "type": "path",
                 "ask": {
                     "en": "Choose a path for Ghost",
                     "fr": "Choisissez un path pour Ghost"
@@ -32,18 +40,12 @@
             },
             {
                 "name": "admin",
+                "type": "user",
                 "ask": {
-                    "en": "Admin user (must be an existing Yunohost user login)",
-                    "fr": "Administrateur du site (doit être un utilisateur Yunohost existant)"
+                    "en": "Choose an admin user (must be an existing Yunohost user login)",
+                    "fr": "Choisissez l’administrateur (doit être un utilisateur Yunohost existant)"
                 },
-                "default": "homer"
-            },
-            {
-                "name": "password",
-                "ask": {
-                    "en": "Admin user password (8 characters minimum)",
-                    "fr": "Mot de passe de l'administrateur (8 caractères minimum)"
-                }
+                "example": "johndoe"
             }
         ]
     }

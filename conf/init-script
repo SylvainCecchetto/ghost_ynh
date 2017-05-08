@@ -16,13 +16,13 @@
 # PATH should only include /usr/* if it runs after the mountnfs.sh script
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Ghost"
-NAME=ynh-ghostblog
-GHOST_ROOT=YNH_FINALPATH/ghost
-GHOST_GROUP=ghostblog
-GHOST_USER=ghostblog
+NAME=YNH_GHOSTAPP
+GHOST_ROOT=YNH_FINALPATH
+GHOST_GROUP=YNH_GHOSTUSER
+GHOST_USER=YNH_GHOSTUSER
 DAEMON=/usr/bin/node
 DAEMON_ARGS="$GHOST_ROOT/index.js"
-PIDFILEDIR=/var/run/yunohost/ghostblog
+PIDFILEDIR=/var/run/yunohost/YNH_GHOSTAPP
 PIDFILE=$PIDFILEDIR/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 LOGFILE="YNH_LOGFILE"

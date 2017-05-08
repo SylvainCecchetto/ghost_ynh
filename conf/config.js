@@ -6,7 +6,7 @@ var path = require('path'),
 
 config = {
     production: {
-        url: 'http://YNH_DOMAINYNH_LOCATION',
+        url: 'http://YNH_URL',
         
         mail: {
           transport: 'SMTP',
@@ -38,3 +38,4 @@ config = {
 
 // Export config
 module.exports = config;
+

@@ -1,136 +1,163 @@
 #!/bin/bash
 
-# Retrieve arguments
-domain=$1
-path=$2
-admin=$3
-password=$4
+#=================================================
+# GENERIC STARTING
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
+
+source /usr/share/yunohost/helpers
+
+#=================================================
+# MANAGE FAILURE OF THE SCRIPT
+#=================================================
+
+set -eu
+
+
+#=================================================
+# RETRIEVE ARGUMENTS FROM THE MANIFEST
+#=================================================
+
+domain=$YNH_APP_ARG_DOMAIN
+path=$YNH_APP_ARG_PATH
+ynh_admin=$YNH_APP_ARG_ADMIN
+
+app=$YNH_APP_INSTANCE_NAME
+unix_user=$app
+dbname=$app
+dbuser=$app
+
+
+#=================================================
+# CHECK IF THE APP CAN BE INSTALLED WITH THIS ARGS
+#=================================================
+
+ynh_user_exists "$ynh_admin" || ynh_die "The chosen admin user does not exist"
 
 # '/ghost' is refused by the application itself. This is used as the route to the admin section
 if [[ "$path" = "/ghost" ]]; then
-    echo "Error : the path cannot be '/ghost', please choose another location"
-    exit 1
+    ynh_die "Error : the path cannot be '/ghost', please choose another location"
 fi
 
-# Check that admin user is an existing account
-sudo yunohost user list --json | grep -q "\"username\": \"$admin\""
-if [[ ! $? -eq 0 ]]; then
-    echo "Error : the chosen admin user does not exist"
-    exit 1
-fi
 
-# 'password' must be >= 8 characters
-if [[ $(expr length $password) -lt "8" ]]; then
-    echo "Error : the password must be >= 8 characters"
-    exit 1
-fi
+app_url="${domain}${path}"
+sudo yunohost app checkurl "$app_url" -a "$app" \
+    || ynh_die "Path not available: $app_url"
 
-# Check domain/path availability
-sudo yunohost app checkurl $domain$path -a ghostblog
-if [[ ! $? -eq 0 ]]; then
-    exit 1
-fi
+
+
+#=================================================
+# STORE SETTINGS FROM MANIFEST
+#=================================================
+
+ynh_app_setting_set "$app" admin "$ynh_admin"
+ynh_app_setting_set "$app" app "$app"
+ynh_app_setting_set "$app" domain "$domain"
+
+
+#=================================================
+# INSTALL DEPENDENCIES
+#=================================================
 
 echo "Install dependencies..."
-sudo apt-get update
-sudo apt-get install nodejs-legacy npm -y
+ynh_package_update
 
-version=0.5.1
-echo "Downloading Ghost $version..."
-mkdir ../tmp
-sudo wget -O ../tmp/ghost-$version.zip "https://en.ghost.org/zip/ghost-$version.zip"
+#!/bin/bash
+
+if $(ynh_package_is_installed "nodejs"); then
+  nodejs_version=$(ynh_package_version "nodejs")
+  if [ "${nodejs_version:0:1}" -eq 4 ] && [ "${nodejs_version:2:1}" -ge 2 ]; then
+    echo "Nodejs installed with correct version"
+  fi
+else
+  [ ! $(ynh_package_is_installed "nodered")] || ynh_package_remove "nodered"
+  [ ! $(ynh_package_is_installed "nodejs")] || ynh_package_remove "nodejs"
+  [ ! $(ynh_package_is_installed "nodejs-legacy")] || ynh_package_remove "nodejs-legacy"
+  [ ! $(ynh_package_is_installed "npm")] || ynh_package_remove "npm"
+
+  sudo curl -sL https://deb.nodesource.com/setup_4.x | sudo bash -
+  sudo apt-get install -y nodejs
+fi
+
+
+#=================================================
+# INSTALL GHOST
+#=================================================
+
+echo "Downloading Ghost..."
+ghost_download_url="https://github.com/TryGhost/Ghost/releases/download/0.11.8/Ghost-0.11.8.zip"
+temp_dir=$(mktemp -d)
+sudo wget -O "$temp_dir/ghost.zip" "$ghost_download_url"
 
 echo "Deploying source files..."
-unzip ../tmp/ghost-$version.zip -d ../tmp/ghost
-final_path=/var/www/ghostblog
-sudo mkdir -p $final_path
-sudo useradd -d $final_path ghostblog
-sudo cp -r ../tmp/ghost $final_path
-#sudo cp ../conf/npm-shrinkwrap.json $final_path/ghost
-sudo chown -R ghostblog: $final_path
+unzip "$temp_dir/ghost.zip" -d "$temp_dir/ghost"
+app_path="/var/www/$app"
+sudo mkdir -p "$app_path"
+ynh_system_user_exists "$unix_user" || sudo useradd -d "$app_path" "$unix_user"
+
+sudo cp -R "$temp_dir/ghost/." "$app_path"
+sudo chown -R "$unix_user": "$app_path"
 
 echo "Installing Ghost with NPM..."
-#sudo su --shell /bin/bash --command "cd $final_path/ghost && npm install --production --registry http://registry.npmjs.eu" ghostblog
-sudo su --shell /bin/bash --command "cd $final_path/ghost && npm install --production --registry http://registry.npmjs.org" ghostblog
+sudo su --shell /bin/bash --command "cd $app_path && npm install --production --unsafe-perm" "$unix_user"
 
 echo "Cleaning up install tree..."
-sudo rm -rf $final_path/.npm
-find $final_path -type d | grep "test$" | xargs sudo rm -rf
-find $final_path -type d | grep "tests$" | xargs sudo rm -rf
-sudo rm -rf $final_path/ghost/node_modules/sqlite3/build
-sudo rm -rf $final_path/tmp
-
-echo "Patching sources to remove calls to googleapis..."
-# patches to core
-sudo cp $final_path/ghost/core/server/views/user-error.hbs $final_path/ghost/core/server/views/user-error.hbs.orig
-sudo cp $final_path/ghost/core/server/views/default.hbs $final_path/ghost/core/server/views/default.hbs.orig
-sudo cp $final_path/ghost/core/client/assets/css/fonts.css $final_path/ghost/core/client/assets/css/fonts.css.orig
-sudo sed -i '/googleapis/c\    <link rel="stylesheet" type="text/css" href="{{asset "css/fonts.css" ghost="true"}}">' $final_path/ghost/core/server/views/user-error.hbs
-sudo sed -i '/googleapis/c\    <link rel="stylesheet" type="text/css" href="{{asset "css/fonts.css" ghost="true"}}">' $final_path/ghost/core/server/views/default.hbs
-sudo cp ../patches/core/fonts.css $final_path/ghost/core/client/assets/css
-sudo cp ../patches/core/*.woff $final_path/ghost/core/client/assets/fonts
-# patches to casper theme
-sudo cp $final_path/ghost/content/themes/casper/default.hbs $final_path/ghost/content/themes/casper/default.hbs.orig
-sudo cp $final_path/ghost/content/themes/casper/assets/css/fonts.css $final_path/ghost/content/themes/casper/assets/css/fonts.css.orig
-sudo sed -i '/googleapis/c\    <link rel="stylesheet" type="text/css" href="{{asset "css/fonts.css"}}">' $final_path/ghost/content/themes/casper/default.hbs
-sudo cp ../patches/theme/fonts.css $final_path/ghost/content/themes/casper/assets/css
-sudo cp ../patches/theme/*.woff $final_path/ghost/content/themes/casper/assets/fonts
+sudo rm -rf "$app_path/.npm"
+find $app_path -type d | grep "test$" | xargs sudo rm -rf
+find $app_path -type d | grep "tests$" | xargs sudo rm -rf
+sudo rm -rf "$app_path/node_modules/sqlite3/build"
+sudo rm -rf "$app_path/tmp"
 
 echo "Setting up permissions"
-sudo chown -R ghostblog: $final_path/ghost
+sudo chown -R "$unix_user": "$app_path"
+
 
 echo "Setting up database..."
-db_name=ghostblog
-db_user=ghostblog
-db_pwd=$(dd if=/dev/urandom bs=1 count=200 2> /dev/null | tr -c -d '[A-Za-z0-9]' | sed -n 's/\(.\{24\}\).*/\1/p')
-sudo yunohost app initdb $db_user -d $db_name -p $db_pwd
-sudo yunohost app setting ghostblog mysqlpwd -v $db_pwd
+
+dbpass=$(ynh_string_random)
+
+ynh_mysql_create_db "$dbname" "$dbuser" "$dbpass"
 
 echo "Deploying configuration..."
-sed -i "s@YNH_DOMAIN@$domain@g" ../conf/config.js
-sed -i "s@YNH_LOCATION@${path%/}@g" ../conf/config.js
-sed -i "s@YNH_DBNAME@$db_name@g" ../conf/config.js
-sed -i "s@YNH_DBUSER@$db_user@g" ../conf/config.js
-sed -i "s@YNH_DBPWD@$db_pwd@g" ../conf/config.js
-sudo cp ../conf/config.js $final_path/ghost
-sudo chown ghostblog: $final_path/ghost/config.js
-sudo chmod 644 $final_path/ghost/config.js
+sed -i "s@YNH_URL@$app_url@g" ../conf/config.js
+sed -i "s@YNH_DBNAME@$dbname@g" ../conf/config.js
+sed -i "s@YNH_DBUSER@$dbuser@g" ../conf/config.js
+sed -i "s@YNH_DBPWD@$dbpass@g" ../conf/config.js
+sudo cp ../conf/config.js "$app_path"
+sudo chown "$unix_user": "$app_path/config.js"
+sudo chmod 644 "$app_path/config.js"
 
 echo "Setting up init script..."
-logfile=/var/log/ynh-ghostblog.log
-sudo touch $logfile
-sudo chown ghostblog: $logfile
-sed -i "s@YNH_FINALPATH@$final_path@g" ../conf/init-script
+logfile="/var/log/$app.log"
+sudo touch "$logfile"
+sudo chown "$unix_user": "$logfile"
+sed -i "s@YNH_FINALPATH@$app_path@g" ../conf/init-script
 sed -i "s@YNH_LOGFILE@$logfile@g" ../conf/init-script
-sudo cp ../conf/init-script /etc/init.d/ynh-ghostblog
-sudo chmod +x /etc/init.d/ynh-ghostblog
-sudo update-rc.d ynh-ghostblog defaults
-sudo service ynh-ghostblog start
-sudo yunohost service add ynh-ghostblog -l $logfile
+sed -i "s@YNH_GHOSTUSER@$unix_user@g" ../conf/init-script
+sed -i "s@YNH_GHOSTAPP@$app@g" ../conf/init-script
+
+sudo cp ../conf/init-script /etc/init.d/"$app"
+sudo chmod +x /etc/init.d/"$app"
+sudo update-rc.d "$app" defaults
+sudo service "$app" start
+sudo yunohost service add "$app" -l $logfile
 
 echo "Setting up logrotate configuration..."
 sed -i "s@YNH_LOGFILE@$logfile@g" ../conf/logrotate
-sudo cp ../conf/logrotate /etc/logrotate.d/ynh-ghostblog
+sudo cp ../conf/logrotate /etc/logrotate.d/"$app"
 
-echo "Nginx configuration (sso disabled)..."
+echo "Nginx configuration..."
 sed -i "s@YNH_LOCATION@$path@g" ../conf/nginx.conf
-sudo cp ../conf/nginx.conf /etc/nginx/conf.d/$domain.d/ghostblog.conf
-sudo yunohost app setting ghostblog skipped_uris -v "/"
+sudo cp ../conf/nginx.conf /etc/nginx/conf.d/$domain.d/"$app".conf
 
-echo "Reloading Nginx (sso disabled)..."
+
+echo "Reloading Nginx..."
+
+# Allow acces to the blog for everyone
+ynh_app_setting_set "$app" skipped_uris "/"
+
+
 sudo service nginx reload
-sudo yunohost app ssowatconf
 
-echo "Registering admin..."
-admin_name=$(sudo yunohost user list --json | python ../conf/user_getname.py $admin)
-admin_mail=$(sudo yunohost user list --json | python ../conf/user_getmail.py $admin)
-curl -kL -X POST http://localhost:2368${path%/}/ghost/api/v0.1/authentication/setup/ \
-  --data-urlencode "setup[0][name]=$admin_name" \
-  --data-urlencode "setup[0][email]=$admin_mail" \
-  --data-urlencode "setup[0][password]=$password" \
-  --data-urlencode "setup[0][blogTitle]=My Yunohost blog"
-
-sudo yunohost app setting ghostblog admin -v $admin
-sudo yunohost app setting ghostblog password -v $password
-
-echo "Success ! You can go to https://$domain$path/ghost to write your posts"
+echo "Success ! You can go to http://${domain}${path}/ghost to configure your ghost admin account"

@@ -1,21 +1,35 @@
 #!/bin/bash
 
-domain=$(sudo yunohost app setting ghostblog domain)
+app=$YNH_APP_INSTANCE_NAME
+unix_user=$app
+dbname=$app
+dbuser=$app
 
-sudo service ynh-ghostblog stop
-sudo update-rc.d ynh-ghostblog remove
-sudo rm /etc/init.d/ynh-ghostblog
-sudo yunohost service remove ynh-ghostblog
-sudo rm -f /etc/nginx/conf.d/$domain.d/ghostblog.conf
-sudo rm -f /var/log/ynh-ghostblog.log*
-sudo rm -rf /var/run/yunohost/ghostblog
-sudo rm -f /etc/logrotate.d/ynh-ghostblog
+# Source YunoHost helpers
+source /usr/share/yunohost/helpers
 
-db_user=ghostblog
-db_name=ghostblog
-root_pwd=$(sudo cat /etc/yunohost/mysql)
+# Drop MySQL database and user
+ynh_mysql_drop_db "$dbname" || true
+ynh_mysql_drop_user "$dbuser" || true
 
-mysql -u root -p$root_pwd -e "DROP DATABASE $db_name ; DROP USER $db_user@localhost ;"
 
-# remove user so that it does not hold resource
-sudo userdel --remove ghostblog
+
+domain=$(sudo yunohost app setting $app domain)
+
+sudo service "$app" stop
+sudo update-rc.d "$app" remove
+sudo rm "/etc/init.d/$app"
+sudo yunohost service remove "$app"
+sudo rm -rf "/etc/nginx/conf.d/$domain.d/$app.conf"
+sudo rm -rf "/var/log/$app.log"
+sudo rm -rf "/var/run/yunohost/$app.pid"
+sudo rm -rf "/etc/logrotate.d/$app"
+sudo rm -rf "/var/www/$app"
+
+
+sudo service nginx reload || true
+
+# Remove the unix_user account
+id "$unix_user" >/dev/null 2>&1 \
+  && sudo deluser --quiet --remove-home "$unix_user" >/dev/null \
+  || true
